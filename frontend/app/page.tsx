@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { FileText, MessageSquare, Trash2, RefreshCw, Clock, Layers, Image, Table } from "lucide-react";
 
 interface Document {
   id: number;
@@ -47,89 +48,160 @@ export default function Home() {
     }
   };
 
+  const retryProcessing = async (id: number) => {
+    try {
+      await fetch(`http://localhost:8000/api/documents/${id}/process`, {
+        method: "POST",
+      });
+      fetchDocuments();
+    } catch (error) {
+      console.error("Error retrying processing:", error);
+    }
+  };
+
+  const getStatusClass = (status: string) => {
+    switch (status) {
+      case 'completed': return 'status-completed';
+      case 'processing': return 'status-processing';
+      case 'error': return 'status-error';
+      default: return 'status-pending';
+    }
+  };
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   return (
-    <div className="px-4 sm:px-0">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">My Documents</h1>
-        <Link
-          href="/upload"
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          Upload New Document
+    <div className="animate-fadeIn">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+        <div>
+          <h1 className="text-3xl font-bold gradient-text">My Documents</h1>
+          <p className="text-[var(--text-secondary)] mt-1">
+            Upload and manage your PDF documents for AI-powered chat
+          </p>
+        </div>
+        <Link href="/upload" className="btn-primary flex items-center gap-2">
+          <FileText className="w-4 h-4" />
+          Upload Document
         </Link>
       </div>
 
       {loading ? (
-        <div className="text-center py-12">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-          <p className="mt-2 text-gray-600">Loading documents...</p>
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-10 h-10 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+          <p className="mt-4 text-[var(--text-secondary)]">Loading documents...</p>
         </div>
       ) : documents.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-500">No documents uploaded yet.</p>
-          <Link
-            href="/upload"
-            className="mt-4 inline-block text-blue-600 hover:text-blue-700"
-          >
-            Upload your first document →
+        <div className="card p-12 text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center">
+            <FileText className="w-8 h-8 text-[var(--text-muted)]" />
+          </div>
+          <h3 className="text-lg font-medium mb-2">No documents yet</h3>
+          <p className="text-[var(--text-secondary)] mb-6">
+            Upload your first PDF document to get started
+          </p>
+          <Link href="/upload" className="btn-primary inline-flex items-center gap-2">
+            Upload Document
           </Link>
         </div>
       ) : (
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <ul className="divide-y divide-gray-200">
-            {documents.map((doc) => (
-              <li key={doc.id}>
-                <div className="px-4 py-4 flex items-center sm:px-6 hover:bg-gray-50">
-                  <div className="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between">
-                    <div className="truncate">
-                      <div className="flex text-sm">
-                        <p className="font-medium text-blue-600 truncate">
-                          {doc.filename}
-                        </p>
-                        <p className="ml-2 flex-shrink-0 font-normal text-gray-500">
-                          <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                            doc.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            doc.status === 'processing' ? 'bg-yellow-100 text-yellow-800' :
-                            doc.status === 'error' ? 'bg-red-100 text-red-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {doc.status}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="mt-2 flex">
-                        <div className="flex items-center text-sm text-gray-500">
-                          <p>
-                            {doc.total_pages} pages • {doc.text_chunks} chunks • {doc.images} images • {doc.tables} tables
-                          </p>
-                        </div>
+        <div className="grid gap-4">
+          {documents.map((doc, idx) => (
+            <div 
+              key={doc.id} 
+              className="card p-5 animate-slideUp"
+              style={{ animationDelay: `${idx * 50}ms` }}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-5 h-5 text-[var(--accent-primary)]" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-medium truncate">{doc.filename}</h3>
+                      <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                        <Clock className="w-3 h-3" />
+                        {formatDate(doc.upload_date)}
                       </div>
                     </div>
                   </div>
-                  <div className="ml-5 flex-shrink-0 flex space-x-2">
-                    <Link
-                      href={`/documents/${doc.id}`}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      View
-                    </Link>
-                    <Link
-                      href={`/chat?document=${doc.id}`}
-                      className="text-green-600 hover:text-green-900"
-                    >
-                      Chat
-                    </Link>
-                    <button
-                      onClick={() => deleteDocument(doc.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
+                  
+                  <div className="flex flex-wrap items-center gap-3 mt-3">
+                    <span className={`status-badge ${getStatusClass(doc.status)}`}>
+                      {doc.status}
+                    </span>
+                    
+                    {doc.status === 'completed' && (
+                      <div className="flex items-center gap-4 text-sm text-[var(--text-secondary)]">
+                        <span className="flex items-center gap-1">
+                          <Layers className="w-3.5 h-3.5" />
+                          {doc.total_pages} pages
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <FileText className="w-3.5 h-3.5" />
+                          {doc.text_chunks} chunks
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Image className="w-3.5 h-3.5" />
+                          {doc.images} images
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Table className="w-3.5 h-3.5" />
+                          {doc.tables} tables
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
+
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/documents/${doc.id}`}
+                    className="btn-secondary px-3 py-2 text-sm"
+                  >
+                    View
+                  </Link>
+                  
+                  {doc.status === 'completed' && (
+                    <Link
+                      href={`/chat?document=${doc.id}`}
+                      className="btn-primary px-3 py-2 text-sm flex items-center gap-1"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Chat
+                    </Link>
+                  )}
+                  
+                  {(doc.status === 'error' || doc.status === 'pending') && (
+                    <button
+                      onClick={() => retryProcessing(doc.id)}
+                      className="btn-secondary px-3 py-2 text-sm flex items-center gap-1"
+                      title="Retry processing"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  
+                  <button
+                    onClick={() => deleteDocument(doc.id)}
+                    className="p-2 text-[var(--text-muted)] hover:text-[var(--error)] transition-colors"
+                    title="Delete document"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -37,7 +37,7 @@ class DocumentChunk(Base):
     embedding = Column(Vector(1536))  # OpenAI embedding dimension
     page_number = Column(Integer)
     chunk_index = Column(Integer)
-    metadata = Column(JSON)  # {related_images: [...], related_tables: [...], ...}
+    chunk_metadata = Column("metadata", JSON)  # {related_images: [...], related_tables: [...], ...}
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -54,7 +54,7 @@ class DocumentImage(Base):
     caption = Column(Text, nullable=True)
     width = Column(Integer)
     height = Column(Integer)
-    metadata = Column(JSON)  # Additional metadata from Docling
+    image_metadata = Column("metadata", JSON)  # Additional metadata from Docling
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -72,7 +72,7 @@ class DocumentTable(Base):
     caption = Column(Text, nullable=True)
     rows = Column(Integer)
     columns = Column(Integer)
-    metadata = Column(JSON)
+    table_metadata = Column("metadata", JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships

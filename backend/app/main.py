@@ -4,15 +4,33 @@ Main FastAPI application entry point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from app.api import documents, chat
 from app.core.config import settings
 from app.db.session import engine
 from app.models import document, conversation
 import os
+import logging
 
-# Create database tables
-document.Base.metadata.create_all(bind=engine)
-conversation.Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
+
+# Enable pgvector extension before creating tables
+def init_db():
+    """Initialize database with pgvector extension and tables."""
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            conn.commit()
+            logger.info("pgvector extension enabled")
+        except Exception as e:
+            logger.warning(f"Could not create pgvector extension: {e}")
+            conn.rollback()
+    
+    # Create database tables
+    document.Base.metadata.create_all(bind=engine)
+    conversation.Base.metadata.create_all(bind=engine)
+
+init_db()
 
 app = FastAPI(
     title="Multimodal Document Chat System",

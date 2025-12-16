@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.db.session import get_db
 from app.models.conversation import Conversation, Message
+from app.models.document import Document
 from app.services.chat_engine import ChatEngine
 
 router = APIRouter()
@@ -33,15 +34,17 @@ async def send_message(
 ) -> ChatResponse:
     """
     Send a chat message and get a response
-    
-    This endpoint:
-    1. Creates or retrieves conversation
-    2. Saves user message
-    3. Processes message with ChatEngine (RAG + multimodal)
-    4. Saves assistant response
-    5. Returns answer with sources (text, images, tables)
     """
-    # Create or get conversation
+    if request.document_id:
+        document = db.query(Document).filter(Document.id == request.document_id).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if document.processing_status != "completed":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Document is not ready for chat. Current status: {document.processing_status}"
+            )
+    
     if request.conversation_id:
         conversation = db.query(Conversation).filter(
             Conversation.id == request.conversation_id
@@ -50,14 +53,13 @@ async def send_message(
             raise HTTPException(status_code=404, detail="Conversation not found")
     else:
         conversation = Conversation(
-            title=request.message[:50],  # First 50 chars as title
+            title=request.message[:50],
             document_id=request.document_id
         )
         db.add(conversation)
         db.commit()
         db.refresh(conversation)
     
-    # Save user message
     user_message = Message(
         conversation_id=conversation.id,
         role="user",
@@ -66,22 +68,13 @@ async def send_message(
     db.add(user_message)
     db.commit()
     
-    # TODO: Process message with ChatEngine
-    # chat_engine = ChatEngine(db)
-    # result = await chat_engine.process_message(
-    #     conversation_id=conversation.id,
-    #     message=request.message,
-    #     document_id=request.document_id
-    # )
+    chat_engine = ChatEngine(db)
+    result = await chat_engine.process_message(
+        conversation_id=conversation.id,
+        message=request.message,
+        document_id=request.document_id or conversation.document_id
+    )
     
-    # For now, return placeholder response
-    result = {
-        "answer": "This is a placeholder response. Implement ChatEngine to process messages.",
-        "sources": [],
-        "processing_time": 0.0
-    }
-    
-    # Save assistant message
     assistant_message = Message(
         conversation_id=conversation.id,
         role="assistant",
@@ -91,6 +84,9 @@ async def send_message(
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
+    
+    conversation.updated_at = assistant_message.created_at
+    db.commit()
     
     return ChatResponse(
         conversation_id=conversation.id,

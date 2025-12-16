@@ -4,15 +4,46 @@ Document management API endpoints
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
-from app.db.session import get_db
+from app.db.session import get_db, SessionLocal
 from app.models.document import Document
 from app.services.document_processor import DocumentProcessor
 from app.core.config import settings
 import os
 import uuid
 from datetime import datetime
+import logging
+import asyncio
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+async def process_document_task(document_id: int, file_path: str):
+    """Background task to process document."""
+    db = SessionLocal()
+    try:
+        processor = DocumentProcessor(db)
+        result = await processor.process_document(file_path, document_id)
+        logger.info(f"Document {document_id} processing result: {result}")
+    except Exception as e:
+        logger.error(f"Error processing document {document_id}: {str(e)}")
+        document = db.query(Document).filter(Document.id == document_id).first()
+        if document:
+            document.processing_status = "error"
+            document.error_message = str(e)
+            db.commit()
+    finally:
+        db.close()
+
+
+def run_async_task(coro):
+    """Run async task in background."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @router.post("/upload")
@@ -23,32 +54,24 @@ async def upload_document(
 ):
     """
     Upload a PDF document for processing
-    
-    This endpoint:
-    1. Saves the uploaded file
-    2. Creates a document record
-    3. Triggers background processing (Docling extraction)
     """
-    # Validate file type
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
     
-    # Validate file size
     contents = await file.read()
     if len(contents) > settings.MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"File size exceeds {settings.MAX_FILE_SIZE / 1024 / 1024}MB limit")
     
-    # Generate unique filename
     file_id = str(uuid.uuid4())
     file_extension = os.path.splitext(file.filename)[1]
     unique_filename = f"{file_id}{file_extension}"
+    
+    os.makedirs(os.path.join(settings.UPLOAD_DIR, "documents"), exist_ok=True)
     file_path = os.path.join(settings.UPLOAD_DIR, "documents", unique_filename)
     
-    # Save file
     with open(file_path, "wb") as f:
         f.write(contents)
     
-    # Create document record
     document = Document(
         filename=file.filename,
         file_path=file_path,
@@ -58,15 +81,55 @@ async def upload_document(
     db.commit()
     db.refresh(document)
     
-    # TODO: Trigger background processing
-    # background_tasks.add_task(process_document_task, document.id, file_path, db)
-    # For now, you can process synchronously or implement Celery
+    if background_tasks:
+        import threading
+        thread = threading.Thread(
+            target=run_async_task,
+            args=(process_document_task(document.id, file_path),)
+        )
+        thread.start()
     
     return {
         "id": document.id,
         "filename": document.filename,
         "status": document.processing_status,
         "message": "Document uploaded successfully. Processing will begin shortly."
+    }
+
+
+@router.post("/{document_id}/process")
+async def trigger_processing(
+    document_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger document processing (useful for retries)
+    """
+    document = db.query(Document).filter(Document.id == document_id).first()
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    if document.processing_status == "processing":
+        raise HTTPException(status_code=400, detail="Document is already being processed")
+    
+    document.processing_status = "pending"
+    document.error_message = None
+    db.commit()
+    
+    import threading
+    thread = threading.Thread(
+        target=run_async_task,
+        args=(process_document_task(document.id, document.file_path),)
+    )
+    thread.start()
+    
+    return {
+        "id": document.id,
+        "filename": document.filename,
+        "status": "pending",
+        "message": "Document processing has been triggered."
     }
 
 
@@ -79,7 +142,7 @@ async def list_documents(
     """
     Get list of all documents
     """
-    documents = db.query(Document).offset(skip).limit(limit).all()
+    documents = db.query(Document).order_by(Document.upload_date.desc()).offset(skip).limit(limit).all()
     
     return {
         "documents": [
@@ -159,7 +222,6 @@ async def delete_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    # Delete physical files
     if os.path.exists(document.file_path):
         os.remove(document.file_path)
     
@@ -171,7 +233,6 @@ async def delete_document(
         if os.path.exists(tbl.image_path):
             os.remove(tbl.image_path)
     
-    # Delete database record (cascade will handle related records)
     db.delete(document)
     db.commit()
     
